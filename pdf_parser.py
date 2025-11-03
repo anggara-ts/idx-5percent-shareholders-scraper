@@ -99,16 +99,19 @@ def parse_shareholder_pdf(pdf_path: str, log_callback=None) -> pd.DataFrame:
             col = df.columns[idx]
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    # Filter affected emiten
-    if "Perubahan" not in df.columns or "Kode Efek" not in df.columns:
-        print("⚠️  Missing expected columns in table, skipping filtering.")
-        return df
+    perc_cols = [
+        c for c in df.columns if "Persentase Kepemilikan Per Investor" in c]
 
-    affected_emiten = df.loc[
-        (df["Perubahan"] != 0) & (
-            (df["Perubahan"] < -100_000) | (df["Perubahan"] > 100_000)),
-        "Kode Efek"
-    ].unique()
+    # Assume last two percentage columns are the "before" and "current" dates
+    prev_col, curr_col = perc_cols[-2], perc_cols[-1]
+
+    # Convert to numeric (should already be numeric, but just in case)
+    df[prev_col] = pd.to_numeric(df[prev_col], errors="coerce").fillna(0)
+    df[curr_col] = pd.to_numeric(df[curr_col], errors="coerce").fillna(0)
+
+    # Compare percentages
+    affected_emiten = df.loc[df[prev_col] !=
+                             df[curr_col], "Kode Efek"].unique()
 
     filtered_df = df[df["Kode Efek"].isin(affected_emiten)]
 
