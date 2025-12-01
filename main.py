@@ -18,6 +18,7 @@ root.geometry("1000x650")
 
 mode_var = tb.StringVar(value="latest")  # 'latest' or 'exact'
 simple_view_var = tb.BooleanVar(value=True)
+hide_zero_perubahan_var = tb.BooleanVar(value=False)
 table_df = pd.DataFrame()
 
 # ---------- Helper UI state ----------
@@ -29,10 +30,12 @@ def set_ui_state(state):
     radio_exact.config(state=state)
     date_entry.config(state=(state if mode_var.get() == "exact" else DISABLED))
     simple_view_check.config(state=state)
+    hide_zero_check.config(state=state)
 
 
 def log_to_label(text):
     root.after(0, lambda: fetch_status_label.config(text=text))
+
 
 # ---------- Fetch / parse ----------
 
@@ -46,16 +49,24 @@ def fetch_parse_thread():
     if current_mode == "exact":
         text = date_entry.get().strip()
         if not text:
-            root.after(0, lambda: Messagebox.show_error(
-                "Please enter a date (YYYY-MM-DD)", "Invalid Date"))
+            root.after(
+                0,
+                lambda: Messagebox.show_error(
+                    "Please enter a date (YYYY-MM-DD)", "Invalid Date"
+                ),
+            )
             set_ui_state(NORMAL)
             fetch_status_label.config(text="")
             return
         try:
             exact_date = datetime.strptime(text, "%Y-%m-%d").strftime("%Y%m%d")
         except ValueError:
-            root.after(0, lambda: Messagebox.show_error(
-                "Date format must be YYYY-MM-DD", "Invalid Date"))
+            root.after(
+                0,
+                lambda: Messagebox.show_error(
+                    "Date format must be YYYY-MM-DD", "Invalid Date"
+                ),
+            )
             set_ui_state(NORMAL)
             fetch_status_label.config(text="")
             return
@@ -67,7 +78,8 @@ def fetch_parse_thread():
         table_df = df
         root.after(0, lambda: display_table(df))
     except Exception as e:
-        root.after(0, lambda: Messagebox.show_error(str(e), "Error"))
+        error_msg = str(e)
+        root.after(0, lambda: Messagebox.show_error(error_msg, "Error"))
     finally:
         root.after(0, lambda: set_ui_state(NORMAL))
         root.after(0, lambda: fetch_status_label.config(text=""))
@@ -75,6 +87,7 @@ def fetch_parse_thread():
 
 def fetch_and_parse():
     threading.Thread(target=fetch_parse_thread, daemon=True).start()
+
 
 # ---------- Display table ----------
 
@@ -84,13 +97,17 @@ def display_table(df: pd.DataFrame):
         w.destroy()
 
     if df.empty:
-        tb.Label(table_frame, text="No data to display",
-                 anchor="w").pack(fill="x", padx=10, pady=10)
+        tb.Label(table_frame, text="No data to display", anchor="w").pack(
+            fill="x", padx=10, pady=10
+        )
         return
 
+    # Filter out rows where Perubahan = 0 if toggle is active
+    if hide_zero_perubahan_var.get() and "Perubahan" in df.columns:
+        df = df[df["Perubahan"] != 0].copy()
+
     if simple_view_var.get():
-        simple_cols = ["No", "Kode Efek",
-                       "Nama Pemegang Rekening Efek", "Perubahan"]
+        simple_cols = ["No", "Kode Efek", "Nama Pemegang Rekening Efek", "Perubahan"]
         visible_cols = [c for c in simple_cols if c in df.columns]
     else:
         visible_cols = list(df.columns)
@@ -113,14 +130,14 @@ def display_table(df: pd.DataFrame):
         show="headings",
         yscrollcommand=vscroll.set,
         xscrollcommand=hscroll.set,
-        bootstyle="info"
+        bootstyle="info",
     )
     tree.pack(fill="both", expand=True)
 
     vscroll.config(command=tree.yview)
     hscroll.config(command=tree.xview)
 
-    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
 
     for col in visible_cols:
         if col == "No":
@@ -140,7 +157,7 @@ def display_table(df: pd.DataFrame):
     for _, row in df.iterrows():
         current_emiten = row.get("Kode Efek", "")
         if prev_emiten is not None and current_emiten != prev_emiten:
-            sep = ["-"*10] * len(visible_cols)
+            sep = ["-" * 10] * len(visible_cols)
             rows.append((sep, "sep"))
 
         vals = []
@@ -189,6 +206,7 @@ def display_table(df: pd.DataFrame):
         if i % 200 == 0:
             tree.update_idletasks()
 
+
 # ---------- Toggle handlers ----------
 
 
@@ -203,6 +221,12 @@ def toggle_view():
     if not table_df.empty:
         display_table(table_df)
 
+
+def toggle_hide_zero():
+    if not table_df.empty:
+        display_table(table_df)
+
+
 # ---------- Layout ----------
 
 
@@ -213,19 +237,31 @@ top_frame.pack(fill="x", padx=10, pady=8)
 mode_row = tb.Frame(top_frame)
 mode_row.pack(fill="x", pady=(0, 6))
 
-tb.Label(mode_row, text="Select Fetch Mode:",
-         style=HEADINGS).pack(side="left", padx=(0, 6))
+tb.Label(mode_row, text="Select Fetch Mode:", style=HEADINGS).pack(
+    side="left", padx=(0, 6)
+)
 
-radio_latest = tb.Radiobutton(mode_row, text="Latest", variable=mode_var, value="latest",
-                              command=toggle_date_picker, bootstyle="info-toolbutton")
+radio_latest = tb.Radiobutton(
+    mode_row,
+    text="Latest",
+    variable=mode_var,
+    value="latest",
+    command=toggle_date_picker,
+    bootstyle="info-toolbutton",
+)
 radio_latest.pack(side="left", padx=4)
 
 # Add separator for clarity
-tb.Separator(mode_row, orient="vertical").pack(
-    side="left", fill="y", padx=8, pady=2)
+tb.Separator(mode_row, orient="vertical").pack(side="left", fill="y", padx=8, pady=2)
 
-radio_exact = tb.Radiobutton(mode_row, text="Pick Exact Date", variable=mode_var, value="exact",
-                             command=toggle_date_picker, bootstyle="info-toolbutton")
+radio_exact = tb.Radiobutton(
+    mode_row,
+    text="Pick Exact Date",
+    variable=mode_var,
+    value="exact",
+    command=toggle_date_picker,
+    bootstyle="info-toolbutton",
+)
 radio_exact.pack(side="left", padx=4)
 
 date_frame = tb.Frame(mode_row)
@@ -237,24 +273,38 @@ date_entry.insert(0, datetime.today().strftime("%Y-%m-%d"))
 date_entry.config(state=DISABLED)
 
 # Tooltip for date format
-ToolTip(date_entry, text="Enter date in YYYY-MM-DD format",
-        bootstyle=(INFO, INVERSE))
+ToolTip(date_entry, text="Enter date in YYYY-MM-DD format", bootstyle=(INFO, INVERSE))
 
 # Row 2: Fetch button + simple view + status
 action_row = tb.Frame(top_frame)
 action_row.pack(fill="x")
 
-fetch_button = tb.Button(action_row, text="Fetch",
-                         command=fetch_and_parse, bootstyle="primary")
+fetch_button = tb.Button(
+    action_row, text="Fetch", command=fetch_and_parse, bootstyle="primary"
+)
 fetch_button.pack(side="left")
 
-simple_view_check = tb.Checkbutton(action_row, text="Simple View", variable=simple_view_var,
-                                   command=toggle_view, bootstyle="success-roundtoggle")
+simple_view_check = tb.Checkbutton(
+    action_row,
+    text="Simple View",
+    variable=simple_view_var,
+    command=toggle_view,
+    bootstyle="success-roundtoggle",
+)
 simple_view_check.pack(side="left", padx=12)
+
+hide_zero_check = tb.Checkbutton(
+    action_row,
+    text="Hide Zero Perubahan",
+    variable=hide_zero_perubahan_var,
+    command=toggle_hide_zero,
+    bootstyle="warning-roundtoggle",
+)
+hide_zero_check.pack(side="left", padx=12)
 
 fetch_status_label = tb.Label(action_row, text="", bootstyle="info")
 fetch_status_label.pack(side="left", padx=10)
-ttk.Separator(root, orient='horizontal').pack(fill='x', padx=10, pady=(5, 5))
+ttk.Separator(root, orient="horizontal").pack(fill="x", padx=10, pady=(5, 5))
 
 # Table frame
 table_frame = tb.Frame(root)
